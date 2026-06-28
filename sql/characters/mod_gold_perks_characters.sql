@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS `mod_gold_perks_character` (
+  `guid` INT UNSIGNED NOT NULL,
+  `sell_rank` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  `bank_rank` TINYINT UNSIGNED NOT NULL DEFAULT 1,
+  `pocket_rank` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  `profession_slots` TINYINT UNSIGNED NOT NULL DEFAULT 2,
+  `last_donny_summon` INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_bank_use` INT UNSIGNED NOT NULL DEFAULT 0,
+  `last_sell_use` INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `mod_gold_perks_log` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `guid` INT UNSIGNED NOT NULL,
+  `action` VARCHAR(32) NOT NULL,
+  `items_sold_gray` INT UNSIGNED NOT NULL DEFAULT 0,
+  `items_sold_white` INT UNSIGNED NOT NULL DEFAULT 0,
+  `items_sold_green` INT UNSIGNED NOT NULL DEFAULT 0,
+  `vendor_value` INT UNSIGNED NOT NULL DEFAULT 0,
+  `donny_cut` INT UNSIGNED NOT NULL DEFAULT 0,
+  `player_received` INT UNSIGNED NOT NULL DEFAULT 0,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_guid_created` (`guid`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

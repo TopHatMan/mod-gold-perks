@@ -1,0 +1,77 @@
+#
+# mod-gold-perks
+# Donny the Dealer: summoned goblin convenience broker.
+# Stage 1: summon Donny, sell poor/common/uncommon clutter, and open portable bank for a cut.
+# Balanced for a current level-60 server cap.
+#
+
+GoldPerks.Enable = 1
+GoldPerks.ServerLevelCap = 60
+GoldPerks.AnnounceOnLogin = 1
+
+# ---------------------------------------------------------------------------
+# Donny the Dealer
+# ---------------------------------------------------------------------------
+GoldPerks.Donny.Entry = 900100
+GoldPerks.Donny.Summon.Enable = 1
+GoldPerks.Donny.Summon.CostCopper = 5000
+GoldPerks.Donny.Summon.DurationSeconds = 60
+GoldPerks.Donny.Summon.CooldownSeconds = 300
+GoldPerks.Donny.Summon.AllowInCombat = 0
+GoldPerks.Donny.Summon.AllowInBattleground = 0
+GoldPerks.Donny.Summon.AllowInArena = 0
+GoldPerks.Donny.Summon.AllowInDungeon = 1
+GoldPerks.Donny.Summon.AllowInRaid = 0
+GoldPerks.Donny.Summon.DungeonFeeMultiplier = 3.0
+
+# Donny lies/upcharges. Flavor-backed by real configurable extra fees.
+GoldPerks.Donny.Upcharge.Enable = 1
+GoldPerks.Donny.Upcharge.ChancePct = 100
+GoldPerks.Donny.Upcharge.MinPct = 5
+GoldPerks.Donny.Upcharge.MaxPct = 20
+GoldPerks.Donny.MangTax.Enable = 1
+GoldPerks.Donny.MangTax.Name = Mang
+GoldPerks.Donny.MangTax.ExtraPct = 10
+
+# ---------------------------------------------------------------------------
+# Selling junk/clutter
+# ---------------------------------------------------------------------------
+GoldPerks.Sell.Enable = 1
+GoldPerks.Sell.AllowGray = 1
+GoldPerks.Sell.AllowWhite = 1
+GoldPerks.Sell.AllowGreen = 1
+GoldPerks.Sell.CooldownSeconds = 0
+
+# Protect one equipped bag from Donny. 1-4 = equipped bag slots left-to-right by inventory slot order.
+# Default 4 keeps the far-right equipped bag safe on most clients.
+GoldPerks.Sell.ProtectedBag.Enabled = 1
+GoldPerks.Sell.ProtectedBagSlot = 4
+
+# Green low-level cleanup sells greens with item level <= player level - this value.
+GoldPerks.Sell.Green.LowLevelDelta = 12
+
+# If enabled, all-green selling requires using the explicit dangerous gossip option.
+GoldPerks.Sell.Green.AllowDangerousAllGreens = 1
+
+# Base cuts. Donny's random upcharge and Mang tax may add more on top.
+GoldPerks.Sell.Gray.CutPct = 35
+GoldPerks.Sell.White.CutPct = 40
+GoldPerks.Sell.Green.CutPct = 50
+GoldPerks.Sell.MaxCutPct = 90
+
+# Common white items can be dangerous because many are reagents/trade goods.
+# Stage 1 default only sells white Misc class items. Turn on the next setting to include trade goods.
+GoldPerks.Sell.White.AllowTradeGoods = 0
+
+# ---------------------------------------------------------------------------
+# Portable Bank
+# ---------------------------------------------------------------------------
+GoldPerks.Bank.Enable = 1
+GoldPerks.Bank.AllowInCombat = 0
+GoldPerks.Bank.AllowInBattleground = 0
+GoldPerks.Bank.AllowInArena = 0
+GoldPerks.Bank.AllowInDungeon = 1
+GoldPerks.Bank.AllowInRaid = 0
+GoldPerks.Bank.DungeonFeeMultiplier = 3.0
+GoldPerks.Bank.BaseUseCostCopper = 15000
+GoldPerks.Bank.CooldownSeconds = 1800
