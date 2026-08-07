@@ -48,10 +48,11 @@ GoldPerks.Sell.ProtectedBag.Enabled = 1
 GoldPerks.Sell.ProtectedBagSlot = 4
 
 # Items on this comma-separated list are NEVER sold by Donny, regardless of quality/sale mode.
-# Defaults are the four classic Shaman elemental totems:
-#   5175 Earth Totem, 5176 Fire Totem, 5177 Water Totem, 5178 Air Totem.
-# These four are also hard-protected in code so a config mistake cannot make Donny sell them.
-GoldPerks.Sell.NeverSellEntries = 5175,5176,5177,5178
+# Defaults protect Shaman's classic elemental totems and Wrath's combined master totem:
+#   5175 Earth Totem, 5176 Fire Totem, 5177 Water Totem, 5178 Air Totem,
+#   46978 Totem of the Earthen Ring.
+# The original four elemental totems are also hard-protected in code so a config mistake cannot sell them.
+GoldPerks.Sell.NeverSellEntries = 5175,5176,5177,5178,46978
 
 # Green low-level cleanup sells greens with item level <= player level - this value.
 GoldPerks.Sell.Green.LowLevelDelta = 12
