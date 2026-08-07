@@ -1,7 +1,7 @@
 #
 # mod-gold-perks
 # Donny the Dealer: summoned goblin convenience broker.
-# Stage 1: summon Donny, sell poor/common/uncommon clutter, and open portable bank for a cut.
+# Stage 2: safer junk selling plus Donny's Magical Overflow / Lost & Found.
 # Balanced for a current level-60 server cap.
 #
 
@@ -47,6 +47,13 @@ GoldPerks.Sell.CooldownSeconds = 0
 GoldPerks.Sell.ProtectedBag.Enabled = 1
 GoldPerks.Sell.ProtectedBagSlot = 4
 
+# Items on this comma-separated list are NEVER sold by Donny, regardless of quality/sale mode.
+# Defaults protect Shaman's classic elemental totems and Wrath's combined master totem:
+#   5175 Earth Totem, 5176 Fire Totem, 5177 Water Totem, 5178 Air Totem,
+#   46978 Totem of the Earthen Ring.
+# The original four elemental totems are also hard-protected in code so a config mistake cannot sell them.
+GoldPerks.Sell.NeverSellEntries = 5175,5176,5177,5178,46978
+
 # Green low-level cleanup sells greens with item level <= player level - this value.
 GoldPerks.Sell.Green.LowLevelDelta = 12
 
@@ -60,8 +67,28 @@ GoldPerks.Sell.Green.CutPct = 50
 GoldPerks.Sell.MaxCutPct = 90
 
 # Common white items can be dangerous because many are reagents/trade goods.
-# Stage 1 default only sells white Misc class items. Turn on the next setting to include trade goods.
+# Default only sells white Misc class items. Turn on the next setting to include trade goods.
 GoldPerks.Sell.White.AllowTradeGoods = 0
+
+# ---------------------------------------------------------------------------
+# Donny's Magical Overflow / Lost & Found
+# ---------------------------------------------------------------------------
+# Permanent per-character perk stored in mod_gold_perks_character.pocket_rank.
+# Rank 0 = not purchased; rank 1 = Magical Overflow purchased.
+GoldPerks.Overflow.Enable = 1
+GoldPerks.Overflow.PurchaseCostCopper = 500000
+
+# AzerothCore performs the safe item recovery when a group-roll winner has genuinely full bags.
+# For recovery in every group type, set this in worldserver.conf:
+#
+#   LFG.MailItemOnFullInventory = 2
+#
+# 0 = disabled, 1 = LFG/RDF only, 2 = all group types.
+# When RequireRecoveryEverywhere is enabled, Donny refuses to sell the perk unless mode 2 is active.
+GoldPerks.Overflow.RequireRecoveryEverywhere = 1
+
+# Magical Overflow uses Donny as a portable Lost & Found mailbox.
+# Access follows the same location restrictions as Donny's portable bank.
 
 # ---------------------------------------------------------------------------
 # Portable Bank

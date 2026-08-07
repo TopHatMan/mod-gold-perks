@@ -1,11 +1,13 @@
 /*
  * mod-gold-perks
- * Stage 1: Donny the Dealer, a temporary summoned goblin broker.
+ * Stage 2: Donny the Dealer, a temporary summoned goblin broker.
  *
  * Features:
  * - .goldperks summon summons Donny temporarily only. No permanent creature spawn.
  * - Donny gossip sells gray/white/green clutter for vendor value minus his cut.
+ * - Donny protects class-critical and quest-related items from every sale mode.
  * - Donny opens the player's bank for a fee.
+ * - Donny sells a permanent Magical Overflow / Lost & Found perk.
  * - Donny lies/upcharges, and character name "Mang" pays extra if enabled.
  */
 
@@ -49,6 +51,9 @@ namespace GoldPerks
         ACTION_SELL_ALL_GREENS_DANGEROUS = 107,
         ACTION_OPEN_BANK = 108,
         ACTION_EXPLAIN_FEES = 109,
+        ACTION_BUY_OVERFLOW = 110,
+        ACTION_OPEN_OVERFLOW = 111,
+        ACTION_EXPLAIN_OVERFLOW = 112,
     };
 
     enum SellMask : uint32
@@ -83,6 +88,14 @@ namespace GoldPerks
         ITEM_CLASS_MISC_CUSTOM = 15,
     };
 
+    enum CriticalItemEntries : uint32
+    {
+        ITEM_EARTH_TOTEM = 5175,
+        ITEM_FIRE_TOTEM = 5176,
+        ITEM_WATER_TOTEM = 5177,
+        ITEM_AIR_TOTEM = 5178,
+    };
+
     struct SellCandidate
     {
         uint8 bag = 0;
@@ -109,6 +122,11 @@ namespace GoldPerks
     static bool Enabled()
     {
         return sConfigMgr->GetOption<bool>("GoldPerks.Enable", true);
+    }
+
+    static bool OverflowEnabled()
+    {
+        return sConfigMgr->GetOption<bool>("GoldPerks.Overflow.Enable", true);
     }
 
     static uint32 Now()
@@ -280,6 +298,54 @@ namespace GoldPerks
         }
     }
 
+    static uint32 GetPocketRank(Player* player)
+    {
+        if (!player)
+            return 0;
+
+        EnsureCharacterRow(player);
+        QueryResult result = CharacterDatabase.Query(
+            "SELECT `pocket_rank` FROM `mod_gold_perks_character` WHERE `guid` = {}",
+            player->GetGUID().GetCounter());
+
+        if (!result)
+            return 0;
+
+        return result->Fetch()[0].Get<uint32>();
+    }
+
+    static void SetPocketRank(Player* player, uint32 rank)
+    {
+        if (!player)
+            return;
+
+        EnsureCharacterRow(player);
+        CharacterDatabase.Execute(
+            "UPDATE `mod_gold_perks_character` SET `pocket_rank` = {} WHERE `guid` = {}",
+            rank,
+            player->GetGUID().GetCounter());
+    }
+
+    static bool HasOverflowPerk(Player* player)
+    {
+        return OverflowEnabled() && GetPocketRank(player) > 0;
+    }
+
+    static uint32 GetOverflowRecoveryMode()
+    {
+        return sConfigMgr->GetOption<uint32>("LFG.MailItemOnFullInventory", 0);
+    }
+
+    static bool OverflowRecoveryReady()
+    {
+        return GetOverflowRecoveryMode() >= 2;
+    }
+
+    static uint32 OverflowPurchaseBaseCost()
+    {
+        return sConfigMgr->GetOption<uint32>("GoldPerks.Overflow.PurchaseCostCopper", 500000);
+    }
+
     static bool TakeMoney(Player* player, uint32 amount)
     {
         if (!player || amount == 0)
@@ -368,9 +434,48 @@ namespace GoldPerks
         return item->GetBagSlot() == protectedBagSlot;
     }
 
-    static bool IsNeverSellTemplate(ItemTemplate const* proto)
+    static bool IsHardProtectedEntry(uint32 entry)
+    {
+        switch (entry)
+        {
+            case ITEM_EARTH_TOTEM:
+            case ITEM_FIRE_TOTEM:
+            case ITEM_WATER_TOTEM:
+            case ITEM_AIR_TOTEM:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    static bool IsConfiguredNeverSellEntry(uint32 entry)
+    {
+        std::string configured = sConfigMgr->GetOption<std::string>(
+            "GoldPerks.Sell.NeverSellEntries",
+            "5175,5176,5177,5178");
+
+        std::replace(configured.begin(), configured.end(), ',', ' ');
+        std::istringstream ss(configured);
+        uint32 configuredEntry = 0;
+        while (ss >> configuredEntry)
+        {
+            if (configuredEntry == entry)
+                return true;
+        }
+
+        return false;
+    }
+
+    static bool IsNeverSellTemplate(ItemTemplate const* proto, uint32 entry)
     {
         if (!proto)
+            return true;
+
+        // Hard safety rails run before price, quality, and sale-mode checks.
+        if (IsHardProtectedEntry(entry) || IsConfiguredNeverSellEntry(entry))
+            return true;
+
+        if (proto->StartQuest != 0 || proto->Bonding == BIND_QUEST_ITEM)
             return true;
 
         if (proto->SellPrice == 0)
@@ -429,7 +534,7 @@ namespace GoldPerks
             return;
 
         ItemTemplate const* proto = item->GetTemplate();
-        if (IsNeverSellTemplate(proto))
+        if (IsNeverSellTemplate(proto, item->GetEntry()))
             return;
 
         bool sell = false;
@@ -612,6 +717,104 @@ namespace GoldPerks
         return true;
     }
 
+    static bool BuyOverflowPerk(Player* player)
+    {
+        if (!player)
+            return false;
+
+        if (!OverflowEnabled())
+        {
+            DonnySay(player, "Dimensional storage is closed. Something about reality permits.");
+            return false;
+        }
+
+        if (HasOverflowPerk(player))
+        {
+            DonnySay(player, "You already bought the magic pocket. I ain't charging you twice. Today.");
+            return true;
+        }
+
+        bool requireEverywhere = sConfigMgr->GetOption<bool>("GoldPerks.Overflow.RequireRecoveryEverywhere", true);
+        if (requireEverywhere && !OverflowRecoveryReady())
+        {
+            DonnySay(player, "I can't sell this yet. Tell the boss to set LFG.MailItemOnFullInventory = 2 first. I may be crooked, but I ain't selling a pocket with a hole in it.");
+            return false;
+        }
+
+        uint32 baseCost = OverflowPurchaseBaseCost();
+        std::string reason;
+        uint32 finalCost = ApplyServiceUpcharge(player, baseCost, &reason);
+        if (!TakeMoney(player, finalCost))
+        {
+            DonnySay(player, "Magical pockets cost money. Revolutionary concept. I need " + MoneyString(finalCost) + ".");
+            return false;
+        }
+
+        SetPocketRank(player, 1);
+        CharacterDatabase.Execute(
+            "INSERT INTO `mod_gold_perks_log` (`guid`, `action`, `donny_cut`) VALUES ({}, 'overflow_buy', {})",
+            player->GetGUID().GetCounter(), finalCost);
+
+        std::string message = "Deal. Your Magical Overflow is active for " + MoneyString(finalCost) + ". If you win rolled loot with genuinely full bags, AzerothCore can recover it; summon me later and open Lost & Found.";
+        if (!reason.empty())
+            message += " " + reason;
+        DonnySay(player, message);
+        return true;
+    }
+
+    static bool OpenOverflow(Player* player, Creature* creature)
+    {
+        if (!player || !creature)
+            return false;
+
+        if (!OverflowEnabled())
+        {
+            DonnySay(player, "Lost & Found is closed. Reality maintenance.");
+            return false;
+        }
+
+        if (!HasOverflowPerk(player))
+        {
+            DonnySay(player, "You didn't buy the magic pocket. No receipt, no pocket, no touching my mail.");
+            return false;
+        }
+
+        if (IsForbiddenForBank(player))
+        {
+            DonnySay(player, "No opening the dimensional pocket here. Too many explosions, witnesses, or lawyers.");
+            return false;
+        }
+
+        bool requireEverywhere = sConfigMgr->GetOption<bool>("GoldPerks.Overflow.RequireRecoveryEverywhere", true);
+        if (requireEverywhere && !OverflowRecoveryReady())
+        {
+            DonnySay(player, "The pocket is yours, but the server recovery line is disconnected. Set LFG.MailItemOnFullInventory = 2 before trusting it with loot.");
+            return false;
+        }
+
+        CharacterDatabase.Execute(
+            "INSERT INTO `mod_gold_perks_log` (`guid`, `action`) VALUES ({}, 'overflow_open')",
+            player->GetGUID().GetCounter());
+
+        // AzerothCore's group-roll full-inventory recovery uses normal mail storage.
+        // Donny acts as the portable Lost & Found access point instead of re-creating items here.
+        // That preserves random properties, binding state, and the core's anti-duplication behavior.
+        creature->ReplaceAllNpcFlags(UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_MAILBOX);
+        DonnySay(player, "Lost & Found's open. If the twisting nether coughed up your loot, it'll be in here. Don't ask what else I keep in the pocket.");
+        player->GetSession()->SendShowMailBox(creature->GetGUID());
+        return true;
+    }
+
+    static void ShowOverflowExplanation(Player* player)
+    {
+        std::ostringstream ss;
+        ss << "Magical Overflow is a permanent character perk. Base price is " << MoneyString(OverflowPurchaseBaseCost())
+           << ". When AzerothCore sees a group-roll winner with genuinely full bags, its safe recovery system can mail the exact won item instead of leaving it behind. "
+           << "I give you portable Lost & Found access. Server recovery mode right now is " << GetOverflowRecoveryMode()
+           << " (2 means all group types). Unique/max-count failures are NOT treated as full bags, so this doesn't duplicate restricted items.";
+        DonnySay(player, ss.str());
+    }
+
     static void ShowStatus(Player* player)
     {
         EnsureCharacterRow(player);
@@ -620,6 +823,10 @@ namespace GoldPerks
         handler.PSendSysMessage("Use .goldperks summon to call Donny the Dealer.");
         handler.PSendSysMessage("Donny is temporary only. No permanent spawn is used.");
         handler.PSendSysMessage("Protected bag slot: %u", sConfigMgr->GetOption<uint32>("GoldPerks.Sell.ProtectedBagSlot", 4));
+        handler.PSendSysMessage("Magical Overflow: %s", HasOverflowPerk(player) ? "PURCHASED" : "not purchased");
+        handler.PSendSysMessage("Full-inventory group-roll recovery mode: %u (2 = all groups)", GetOverflowRecoveryMode());
+        if (HasOverflowPerk(player) && !OverflowRecoveryReady())
+            handler.SendSysMessage("|cffff6060WARNING: Magical Overflow is purchased, but LFG.MailItemOnFullInventory is not set to 2.|r");
         handler.PSendSysMessage("Mang tax active for you: %s", IsMang(player) ? "YES. Donny noticed." : "no");
     }
 }
@@ -638,6 +845,9 @@ public:
 
         if (sConfigMgr->GetOption<bool>("GoldPerks.AnnounceOnLogin", true))
             ChatHandler(player->GetSession()).SendSysMessage("|cff66ff66Gold Perks loaded.|r Use .goldperks summon to call Donny the Dealer.");
+
+        if (GoldPerks::HasOverflowPerk(player) && !GoldPerks::OverflowRecoveryReady())
+            ChatHandler(player->GetSession()).SendSysMessage("|cffff6060Donny warning: Magical Overflow needs LFG.MailItemOnFullInventory = 2 for recovery in all group types.|r");
     }
 };
 
@@ -767,6 +977,19 @@ public:
         AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "Sell gray + white misc + low greens", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_SELL_GRAY_WHITE_LOW_GREENS);
         AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, "DANGEROUS: Sell all green items", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_SELL_ALL_GREENS_DANGEROUS);
         AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "Open my bank through Donny", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_OPEN_BANK);
+
+        if (GoldPerks::OverflowEnabled())
+        {
+            if (GoldPerks::HasOverflowPerk(player))
+                AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Open Donny's Magical Overflow / Lost & Found", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_OPEN_OVERFLOW);
+            else
+            {
+                std::string buyText = "Buy Magical Overflow (base " + GoldPerks::MoneyString(GoldPerks::OverflowPurchaseBaseCost()) + ")";
+                AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, buyText, GOSSIP_SENDER_MAIN, GoldPerks::ACTION_BUY_OVERFLOW);
+            }
+            AddGossipItemFor(player, GOSSIP_ICON_CHAT, "What's this Magical Overflow thing?", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_EXPLAIN_OVERFLOW);
+        }
+
         AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Explain your fees", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_EXPLAIN_FEES);
         SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature->GetGUID());
         return true;
@@ -818,6 +1041,21 @@ public:
                 GoldPerks::PayBankFee(player, creature);
                 CloseGossipMenuFor(player);
                 creature->DespawnOrUnsummon(3000);
+                return true;
+
+            case GoldPerks::ACTION_BUY_OVERFLOW:
+                GoldPerks::BuyOverflowPerk(player);
+                OnGossipHello(player, creature);
+                return true;
+
+            case GoldPerks::ACTION_OPEN_OVERFLOW:
+                CloseGossipMenuFor(player);
+                GoldPerks::OpenOverflow(player, creature);
+                return true;
+
+            case GoldPerks::ACTION_EXPLAIN_OVERFLOW:
+                GoldPerks::ShowOverflowExplanation(player);
+                OnGossipHello(player, creature);
                 return true;
 
             case GoldPerks::ACTION_EXPLAIN_FEES:
