@@ -34,6 +34,8 @@
 #include <string>
 #include <vector>
 
+using namespace Acore::ChatCommands;
+
 namespace GoldPerks
 {
     constexpr uint32 COPPER_PER_SILVER = 100;
@@ -71,7 +73,6 @@ namespace GoldPerks
         TIME_LAST_SELL_USE
     };
 
-    // These class values are stable in 3.3.5 item templates.
     enum ItemClassIds : uint32
     {
         ITEM_CLASS_CONSUMABLE_CUSTOM = 0,
@@ -94,6 +95,7 @@ namespace GoldPerks
         ITEM_FIRE_TOTEM = 5176,
         ITEM_WATER_TOTEM = 5177,
         ITEM_AIR_TOTEM = 5178,
+        ITEM_EARTHEN_RING_TOTEM = 46978,
     };
 
     struct SellCandidate
@@ -442,6 +444,7 @@ namespace GoldPerks
             case ITEM_FIRE_TOTEM:
             case ITEM_WATER_TOTEM:
             case ITEM_AIR_TOTEM:
+            case ITEM_EARTHEN_RING_TOTEM:
                 return true;
             default:
                 return false;
@@ -452,7 +455,7 @@ namespace GoldPerks
     {
         std::string configured = sConfigMgr->GetOption<std::string>(
             "GoldPerks.Sell.NeverSellEntries",
-            "5175,5176,5177,5178");
+            "5175,5176,5177,5178,46978");
 
         std::replace(configured.begin(), configured.end(), ',', ' ');
         std::istringstream ss(configured);
@@ -471,7 +474,6 @@ namespace GoldPerks
         if (!proto)
             return true;
 
-        // Hard safety rails run before price, quality, and sale-mode checks.
         if (IsHardProtectedEntry(entry) || IsConfiguredNeverSellEntry(entry))
             return true;
 
@@ -796,9 +798,6 @@ namespace GoldPerks
             "INSERT INTO `mod_gold_perks_log` (`guid`, `action`) VALUES ({}, 'overflow_open')",
             player->GetGUID().GetCounter());
 
-        // AzerothCore's group-roll full-inventory recovery uses normal mail storage.
-        // Donny acts as the portable Lost & Found access point instead of re-creating items here.
-        // That preserves random properties, binding state, and the core's anti-duplication behavior.
         creature->ReplaceAllNpcFlags(UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_MAILBOX);
         DonnySay(player, "Lost & Found's open. If the twisting nether coughed up your loot, it'll be in here. Don't ask what else I keep in the pocket.");
         player->GetSession()->SendShowMailBox(creature->GetGUID());
@@ -856,17 +855,17 @@ class gold_perks_command_script : public CommandScript
 public:
     gold_perks_command_script() : CommandScript("gold_perks_command_script") { }
 
-    std::vector<ChatCommand> GetCommands() const override
+    ChatCommandTable GetCommands() const override
     {
-        static std::vector<ChatCommand> goldPerksCommandTable =
+        static ChatCommandTable goldPerksCommandTable =
         {
-            { "summon", SEC_PLAYER, false, &HandleSummonCommand, "" },
-            { "status", SEC_PLAYER, false, &HandleStatusCommand, "" },
+            { "summon", HandleSummonCommand, SEC_PLAYER, Console::No },
+            { "status", HandleStatusCommand, SEC_PLAYER, Console::No },
         };
 
-        static std::vector<ChatCommand> commandTable =
+        static ChatCommandTable commandTable =
         {
-            { "goldperks", SEC_PLAYER, false, nullptr, "", goldPerksCommandTable },
+            { "goldperks", goldPerksCommandTable },
         };
 
         return commandTable;
@@ -928,8 +927,6 @@ public:
         float z = player->GetPositionZ();
         float o = player->GetOrientation();
 
-        // Donny is intentionally TEMPORARY. Do not insert him into the `creature` table.
-        // This summon exists only for this call and despawns after GoldPerks.Donny.Summon.DurationSeconds.
         Creature* donny = player->SummonCreature(entry, x, y, z, o, TEMPSUMMON_TIMED_DESPAWN, duration);
         if (!donny)
         {
@@ -1040,7 +1037,7 @@ public:
             case GoldPerks::ACTION_OPEN_BANK:
                 GoldPerks::PayBankFee(player, creature);
                 CloseGossipMenuFor(player);
-                creature->DespawnOrUnsummon(3000);
+                creature->DespawnOrUnsummon(Milliseconds(3000));
                 return true;
 
             case GoldPerks::ACTION_BUY_OVERFLOW:
@@ -1125,7 +1122,7 @@ private:
         GoldPerks::DonnySay(player, ss.str());
 
         CloseGossipMenuFor(player);
-        creature->DespawnOrUnsummon(3000);
+        creature->DespawnOrUnsummon(Milliseconds(3000));
     }
 };
 
