@@ -14,6 +14,7 @@ Donny the Dealer is a temporary summoned goblin convenience broker for AzerothCo
   - dangerous all-greens mode
 - Donny's sell scanner now has a universal **Never Sell** gate before quality checks.
 - Earth Totem (`5175`), Fire Totem (`5176`), Water Totem (`5177`), and Air Totem (`5178`) are hard-protected even if the config is changed incorrectly.
+- Wrath's Totem of the Earthen Ring (`46978`) is included in the default Never-Sell configuration.
 - Quest-starting items, quest-bound items, quest items, keys, recipes, containers, quivers, and zero-vendor-price items are not sold.
 - Additional protected entries can be added with `GoldPerks.Sell.NeverSellEntries`.
 - Donny opens the player's bank for a fee.
@@ -92,7 +93,8 @@ Use a Shaman carrying one or more elemental totems and some disposable gray/whit
 2. Preview and sell gray + white clutter.
 3. Test low-green cleanup if desired.
 4. Verify Earth/Fire/Water/Air Totems remain in inventory.
-5. Put a known disposable item ID into `GoldPerks.Sell.NeverSellEntries`, restart/reload config as appropriate, and verify Donny skips it too.
+5. If available on the character, verify Totem of the Earthen Ring (`46978`) is also skipped.
+6. Put a known disposable item ID into `GoldPerks.Sell.NeverSellEntries`, restart/reload config as appropriate, and verify Donny skips it too.
 
 ### Magical Overflow test
 
