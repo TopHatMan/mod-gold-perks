@@ -12,6 +12,13 @@ GET_OPTION_RE = re.compile(r'GetOption\s*<[^>]+>\s*\(\s*"(GoldPerks\.[A-Za-z0-9_
 CONFIG_RE = re.compile(r'^\s*(GoldPerks\.[A-Za-z0-9_.]+)\s*=', re.MULTILINE)
 OLD_PSEND_RE = re.compile(r'PSendSysMessage\([^\n;]*%[sudi]')
 
+# These are read through a conditional expression passed to GetOption(), so the simple literal
+# regex above cannot discover them automatically.
+DYNAMIC_SOURCE_KEYS = {
+    'GoldPerks.Bank.DungeonFeeMultiplier',
+    'GoldPerks.Donny.Summon.DungeonFeeMultiplier',
+}
+
 
 def main() -> int:
     cpp = CPP.read_text(encoding='utf-8')
@@ -30,7 +37,7 @@ def main() -> int:
             print('  -', match[:120])
         failed = True
 
-    source_keys = set(GET_OPTION_RE.findall(cpp))
+    source_keys = set(GET_OPTION_RE.findall(cpp)) | DYNAMIC_SOURCE_KEYS
     config_keys = CONFIG_RE.findall(conf)
     duplicates = sorted({key for key in config_keys if config_keys.count(key) > 1})
     config_set = set(config_keys)
