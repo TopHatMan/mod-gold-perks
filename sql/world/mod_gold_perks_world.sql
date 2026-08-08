@@ -29,3 +29,9 @@ WHERE `CreatureID` = 30464;
 -- SELECT `entry`, `name`, `modelid1`, `modelid2`, `modelid3`, `modelid4`
 -- FROM `creature_template`
 -- WHERE `entry` = 30464;
+
+-- Runtime verification after import/restart:
+-- SELECT `entry`, `name`, `npcflag`, `ScriptName`
+-- FROM `creature_template`
+-- WHERE `entry` = 900100;
+-- Expected: npcflag includes GOSSIP (1), ScriptName = 'npc_donny_the_dealer'.
