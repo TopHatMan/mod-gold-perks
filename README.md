@@ -111,3 +111,19 @@ Use a Shaman carrying one or more elemental totems and some disposable gray/whit
 ## Important
 
 No module `CMakeLists.txt` is included because this setup is intended for your existing module build style.
+
+## Runtime diagnostics / repair
+
+Current AzerothCore uses fmt-style `{}` placeholders for `PSendSysMessage`; this module now follows that API so Donny's feedback is visible instead of silently failing around old `%s`/`%u` formatting.
+
+The canonical module config must begin with `[worldserver]`. Copying a `.conf.dist` without that section header into `configs/modules/` can make ConfigMgr ignore the GoldPerks settings even though the file exists.
+
+Run:
+
+```text
+.goldperks status
+```
+
+to see the effective overflow recovery mode, `pocket_rank` schema state, Donny creature-template binding, `ScriptName`, and gossip flag. `.goldperks summon` now refuses to take a summon fee if the configured creature entry is missing, lacks the gossip flag, or is not bound to `npc_donny_the_dealer`.
+
+Magical Overflow still intentionally requires `LFG.MailItemOnFullInventory = 2` by default. When that prerequisite is not satisfied, the gossip option and status output now say so explicitly. The purchase persists `pocket_rank` first and verifies it before deducting gold; persistence failure therefore cannot eat the purchase price.

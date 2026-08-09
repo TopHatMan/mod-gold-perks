@@ -152,12 +152,59 @@ namespace GoldPerks
         return ss.str();
     }
 
+    struct DonnyTemplateState
+    {
+        bool exists = false;
+        bool scriptOk = false;
+        bool gossipFlag = false;
+        std::string scriptName;
+        uint64 npcFlags = 0;
+
+        bool Ready() const { return exists && scriptOk && gossipFlag; }
+    };
+
+    static DonnyTemplateState InspectDonnyTemplate(uint32 entry)
+    {
+        DonnyTemplateState state;
+        QueryResult result = WorldDatabase.Query(
+            "SELECT `ScriptName`, `npcflag` FROM `creature_template` WHERE `entry` = {}",
+            entry);
+        if (!result)
+            return state;
+
+        Field* fields = result->Fetch();
+        state.exists = true;
+        state.scriptName = fields[0].Get<std::string>();
+        state.npcFlags = fields[1].Get<uint64>();
+        state.scriptOk = state.scriptName == "npc_donny_the_dealer";
+        state.gossipFlag = (state.npcFlags & uint64(UNIT_NPC_FLAG_GOSSIP)) != 0;
+        return state;
+    }
+
+    static std::string DonnyTemplateProblem(DonnyTemplateState const& state, uint32 entry)
+    {
+        if (!state.exists)
+            return "creature_template entry " + std::to_string(entry) + " is missing; import sql/world/mod_gold_perks_world.sql";
+        if (!state.scriptOk)
+            return "creature_template ScriptName is '" + state.scriptName + "' instead of npc_donny_the_dealer; re-import the world SQL and restart worldserver";
+        if (!state.gossipFlag)
+            return "creature_template is missing UNIT_NPC_FLAG_GOSSIP; re-import the world SQL and restart worldserver";
+        return "ready";
+    }
+
+    static bool CharacterSchemaReady()
+    {
+        QueryResult result = CharacterDatabase.Query(
+            "SHOW COLUMNS FROM `mod_gold_perks_character` LIKE 'pocket_rank'");
+        return bool(result);
+    }
+
     static void DonnySay(Player* player, std::string const& text)
     {
         if (!player || !player->GetSession())
             return;
 
-        ChatHandler(player->GetSession()).PSendSysMessage("|cff66ff66Donny the Dealer|r: %s", text.c_str());
+        ChatHandler(player->GetSession()).PSendSysMessage("|cff66ff66Donny the Dealer|r: {}", text);
     }
 
     static bool IsMang(Player* player)
@@ -316,16 +363,23 @@ namespace GoldPerks
         return result->Fetch()[0].Get<uint32>();
     }
 
-    static void SetPocketRank(Player* player, uint32 rank)
+    static bool SetPocketRankVerified(Player* player, uint32 rank)
     {
-        if (!player)
-            return;
+        if (!player || !CharacterSchemaReady())
+            return false;
 
-        EnsureCharacterRow(player);
-        CharacterDatabase.Execute(
-            "UPDATE `mod_gold_perks_character` SET `pocket_rank` = {} WHERE `guid` = {}",
-            rank,
-            player->GetGUID().GetCounter());
+        uint32 const guid = player->GetGUID().GetCounter();
+
+        // This is a rare explicit purchase, so make persistence deterministic instead of queuing an
+        // async INSERT/UPDATE and charging the player before we know the perk was stored.
+        CharacterDatabase.DirectExecute(
+            "INSERT IGNORE INTO `mod_gold_perks_character` (`guid`) VALUES ({})", guid);
+        CharacterDatabase.DirectExecute(
+            "UPDATE `mod_gold_perks_character` SET `pocket_rank` = {} WHERE `guid` = {}", rank, guid);
+
+        QueryResult result = CharacterDatabase.Query(
+            "SELECT `pocket_rank` FROM `mod_gold_perks_character` WHERE `guid` = {}", guid);
+        return result && result->Fetch()[0].Get<uint32>() == rank;
     }
 
     static bool HasOverflowPerk(Player* player)
@@ -743,16 +797,34 @@ namespace GoldPerks
             return false;
         }
 
+        if (!CharacterSchemaReady())
+        {
+            DonnySay(player, "My dimensional paperwork table is missing pocket_rank. Import sql/characters/mod_gold_perks_characters.sql before I take a single copper.");
+            return false;
+        }
+
         uint32 baseCost = OverflowPurchaseBaseCost();
         std::string reason;
         uint32 finalCost = ApplyServiceUpcharge(player, baseCost, &reason);
-        if (!TakeMoney(player, finalCost))
+        if (player->GetMoney() < finalCost)
         {
             DonnySay(player, "Magical pockets cost money. Revolutionary concept. I need " + MoneyString(finalCost) + ".");
             return false;
         }
 
-        SetPocketRank(player, 1);
+        if (!SetPocketRankVerified(player, 1))
+        {
+            DonnySay(player, "The dimensional paperwork failed. I did NOT charge you. Check the characters database and worldserver log.");
+            return false;
+        }
+
+        if (!TakeMoney(player, finalCost))
+        {
+            (void)SetPocketRankVerified(player, 0);
+            DonnySay(player, "Your money changed while I was filing the paperwork. Deal cancelled; you were not charged.");
+            return false;
+        }
+
         CharacterDatabase.Execute(
             "INSERT INTO `mod_gold_perks_log` (`guid`, `action`, `donny_cut`) VALUES ({}, 'overflow_buy', {})",
             player->GetGUID().GetCounter(), finalCost);
@@ -821,12 +893,22 @@ namespace GoldPerks
         handler.SendSysMessage("|cff66ff66Gold Perks|r");
         handler.PSendSysMessage("Use .goldperks summon to call Donny the Dealer.");
         handler.PSendSysMessage("Donny is temporary only. No permanent spawn is used.");
-        handler.PSendSysMessage("Protected bag slot: %u", sConfigMgr->GetOption<uint32>("GoldPerks.Sell.ProtectedBagSlot", 4));
-        handler.PSendSysMessage("Magical Overflow: %s", HasOverflowPerk(player) ? "PURCHASED" : "not purchased");
-        handler.PSendSysMessage("Full-inventory group-roll recovery mode: %u (2 = all groups)", GetOverflowRecoveryMode());
-        if (HasOverflowPerk(player) && !OverflowRecoveryReady())
-            handler.SendSysMessage("|cffff6060WARNING: Magical Overflow is purchased, but LFG.MailItemOnFullInventory is not set to 2.|r");
-        handler.PSendSysMessage("Mang tax active for you: %s", IsMang(player) ? "YES. Donny noticed." : "no");
+        handler.PSendSysMessage("Protected bag slot: {}", sConfigMgr->GetOption<uint32>("GoldPerks.Sell.ProtectedBagSlot", 4));
+        handler.PSendSysMessage("Magical Overflow: {}", HasOverflowPerk(player) ? "PURCHASED" : "not purchased");
+        handler.PSendSysMessage("Full-inventory group-roll recovery mode: {} (2 = all groups)", GetOverflowRecoveryMode());
+        if (!OverflowRecoveryReady())
+            handler.SendSysMessage("|cffff6060Magical Overflow purchase is blocked until LFG.MailItemOnFullInventory = 2 (unless RequireRecoveryEverywhere is disabled).|r");
+        handler.PSendSysMessage("Characters DB pocket_rank schema: {}", CharacterSchemaReady() ? "ready" : "MISSING/BROKEN");
+
+        uint32 const donnyEntry = sConfigMgr->GetOption<uint32>("GoldPerks.Donny.Entry", 900100);
+        DonnyTemplateState const templateState = InspectDonnyTemplate(donnyEntry);
+        handler.PSendSysMessage("Donny template entry {}: {}", donnyEntry, templateState.Ready() ? "ready" : "BROKEN");
+        if (!templateState.Ready())
+            handler.PSendSysMessage("Donny template problem: {}", DonnyTemplateProblem(templateState, donnyEntry));
+        else
+            handler.PSendSysMessage("Donny ScriptName: {} | npcflag: {}", templateState.scriptName, templateState.npcFlags);
+
+        handler.PSendSysMessage("Mang tax active for you: {}", IsMang(player) ? "YES. Donny noticed." : "no");
     }
 }
 
@@ -904,7 +986,16 @@ public:
         uint32 lastSummon = GoldPerks::GetLastTime(player, GoldPerks::TIME_LAST_DONNY_SUMMON);
         if (lastSummon && now < lastSummon + cooldown)
         {
-            handler->PSendSysMessage("Donny is dodging you for %u more seconds.", (lastSummon + cooldown) - now);
+            handler->PSendSysMessage("Donny is dodging you for {} more seconds.", (lastSummon + cooldown) - now);
+            return true;
+        }
+
+        uint32 const entry = sConfigMgr->GetOption<uint32>("GoldPerks.Donny.Entry", 900100);
+        GoldPerks::DonnyTemplateState const templateState = GoldPerks::InspectDonnyTemplate(entry);
+        if (!templateState.Ready())
+        {
+            handler->PSendSysMessage("Donny entry {} is not usable: {}. No summon fee charged.",
+                entry, GoldPerks::DonnyTemplateProblem(templateState, entry));
             return true;
         }
 
@@ -915,11 +1006,10 @@ public:
         uint32 finalCost = GoldPerks::ApplyServiceUpcharge(player, baseCost, &reason);
         if (!GoldPerks::TakeMoney(player, finalCost))
         {
-            handler->PSendSysMessage("Donny wants %s just to show up. You don't have it.", GoldPerks::MoneyString(finalCost).c_str());
+            handler->PSendSysMessage("Donny wants {} just to show up. You don't have it.", GoldPerks::MoneyString(finalCost));
             return true;
         }
 
-        uint32 entry = sConfigMgr->GetOption<uint32>("GoldPerks.Donny.Entry", 900100);
         uint32 duration = sConfigMgr->GetOption<uint32>("GoldPerks.Donny.Summon.DurationSeconds", 60) * IN_MILLISECONDS;
 
         float x = player->GetPositionX() + 1.5f * std::cos(player->GetOrientation());
@@ -940,7 +1030,7 @@ public:
             "INSERT INTO `mod_gold_perks_log` (`guid`, `action`, `donny_cut`) VALUES ({}, 'summon', {})",
             player->GetGUID().GetCounter(), finalCost);
 
-        handler->PSendSysMessage("Donny charged %s to show up.%s%s", GoldPerks::MoneyString(finalCost).c_str(), reason.empty() ? "" : " ", reason.c_str());
+        handler->PSendSysMessage("Donny charged {} to show up.{}{}", GoldPerks::MoneyString(finalCost), reason.empty() ? "" : " ", reason);
         GoldPerks::DonnySay(player, "Alright, make it quick. All jobs take two to four hours, unless they don't. Donny ain't sure about this deal.");
         return true;
     }
@@ -981,7 +1071,12 @@ public:
                 AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Open Donny's Magical Overflow / Lost & Found", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_OPEN_OVERFLOW);
             else
             {
-                std::string buyText = "Buy Magical Overflow (base " + GoldPerks::MoneyString(GoldPerks::OverflowPurchaseBaseCost()) + ")";
+                bool const requireEverywhere = sConfigMgr->GetOption<bool>("GoldPerks.Overflow.RequireRecoveryEverywhere", true);
+                std::string buyText;
+                if (requireEverywhere && !GoldPerks::OverflowRecoveryReady())
+                    buyText = "Magical Overflow unavailable: set LFG.MailItemOnFullInventory = 2";
+                else
+                    buyText = "Buy Magical Overflow (base " + GoldPerks::MoneyString(GoldPerks::OverflowPurchaseBaseCost()) + ")";
                 AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, buyText, GOSSIP_SENDER_MAIN, GoldPerks::ACTION_BUY_OVERFLOW);
             }
             AddGossipItemFor(player, GOSSIP_ICON_CHAT, "What's this Magical Overflow thing?", GOSSIP_SENDER_MAIN, GoldPerks::ACTION_EXPLAIN_OVERFLOW);

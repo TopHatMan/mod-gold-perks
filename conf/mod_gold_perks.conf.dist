@@ -1,3 +1,5 @@
+[worldserver]
+
 #
 # mod-gold-perks
 # Donny the Dealer: summoned goblin convenience broker.
@@ -6,7 +8,6 @@
 #
 
 GoldPerks.Enable = 1
-GoldPerks.ServerLevelCap = 60
 GoldPerks.AnnounceOnLogin = 1
 
 # ---------------------------------------------------------------------------
